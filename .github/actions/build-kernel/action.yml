@@ -1734,37 +1734,35 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
-        SB_REF: c2cb71614868fe742cbffee2b6f3126523432673
       run: |
         set -uo pipefail
         echo "::group::ZeroMount"
         cd "$COMMON_KERNEL_FOLDER"
         KMI="${ANDROID_VER:-$OP_ANDROID_VERSION}-${KERNEL_VER:-$OP_KERNEL_VERSION}"
-        SB_RAW="https://raw.githubusercontent.com/Enginex0/Super-Builders/$SB_REF/$KMI/KernelSU-Next/patches"
-        PATCH_UPSTREAM="/tmp/60_zeromount-$KMI.patch"
-        curl --fail -sSL "$SB_RAW/60_zeromount-$KMI.patch" -o "$PATCH_UPSTREAM"
-        ls -la "$PATCH_UPSTREAM"
-
-        # Snapshot of everything modified so far (SUSFS + hooks + compat), for offline debugging
-        mkdir -p /tmp/zm-out
-        git ls-files -m -o --exclude-standard > /tmp/zm-out/changed.txt
-        tar czf "/tmp/zm-out/zm-snapshot-$OP_MODEL-$OP_OS_VERSION.tgz" -T /tmp/zm-out/changed.txt
-        git rev-parse HEAD > /tmp/zm-out/base-commit.txt
-        grep -E '#define SUSFS_VERSION' include/linux/susfs.h > /tmp/zm-out/susfs-version.txt || true
-
-        # Dry-run of the unmodified upstream ZeroMount patch against the real tree
-        rc=0
-        patch -p1 --dry-run --forward --batch < "$PATCH_UPSTREAM" > "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log" 2>&1 || rc=$?
-        echo "dry-run exit: $rc" | tee -a "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
-        tail -60 "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
+        ZM_PATCH="$GITHUB_WORKSPACE/zeromount/$KMI/60_zeromount-oplus.patch"
 
         if [ "${{ inputs.zm_snapshot_only }}" = "true" ]; then
+          mkdir -p /tmp/zm-out
+          git ls-files -m -o --exclude-standard > /tmp/zm-out/changed.txt
+          tar czf "/tmp/zm-out/zm-snapshot-$OP_MODEL-$OP_OS_VERSION.tgz" -T /tmp/zm-out/changed.txt
           gh release view zm-debug --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create zm-debug --repo "$GITHUB_REPOSITORY" --prerelease --title "ZeroMount debug snapshots" --notes "Debug artifacts"
           gh release upload zm-debug /tmp/zm-out/* --clobber --repo "$GITHUB_REPOSITORY"
           echo "ZM_STOP=1" >> "$GITHUB_ENV"
-          echo "Snapshot uploaded; stopping before compile."
+          echo "::endgroup::"; exit 0
         fi
+
+        [ -f "$ZM_PATCH" ] || { echo "::error::No ZeroMount patch for $KMI at $ZM_PATCH"; exit 1; }
+        if ! patch -p1 --forward --batch --no-backup-if-mismatch < "$ZM_PATCH"; then
+          echo "::error::ZeroMount patch failed to apply for $KMI (kernel changed upstream?)"
+          find . -name '*.rej' | head
+          exit 1
+        fi
+        if find . -name '*.rej' | grep -q .; then echo "::error::Reject files present after ZeroMount patch"; exit 1; fi
+
+        # enable in defconfig (the Kconfig default is y, this makes it explicit)
+        echo "CONFIG_ZEROMOUNT=y" >> arch/arm64/configs/gki_defconfig
+        grep -q '^obj-$(CONFIG_ZEROMOUNT)' fs/Makefile && echo "ZeroMount applied: Makefile hook present"
         echo "::endgroup::"
 
     - name: Add Build based configs
