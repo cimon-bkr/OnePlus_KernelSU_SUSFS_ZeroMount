@@ -35,6 +35,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install failure tracer (surfaces failing commands as annotations)
+        run: |
+          cat > "$HOME/zm_trap.sh" <<'TRAP'
+          trap 'rc=$?; echo "::error title=ZM-TRACE::rc=$rc line=$LINENO cmd=${BASH_COMMAND:0:400}"' ERR
+          TRAP
+          echo "BASH_ENV=$HOME/zm_trap.sh" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: |
           set -euo pipefail
