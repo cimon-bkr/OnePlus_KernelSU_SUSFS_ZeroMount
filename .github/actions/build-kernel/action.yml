@@ -1321,8 +1321,9 @@ runs:
         grep -E '#define SUSFS_VERSION' include/linux/susfs.h > /tmp/zm-out/susfs-version.txt || true
 
         # Dry-run of the unmodified upstream ZeroMount patch against the real tree
-        patch -p1 --dry-run --forward --batch < "$PATCH_UPSTREAM" > "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log" 2>&1
-        echo "dry-run exit: $?" | tee -a "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
+        rc=0
+        patch -p1 --dry-run --forward --batch < "$PATCH_UPSTREAM" > "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log" 2>&1 || rc=$?
+        echo "dry-run exit: $rc" | tee -a "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
         tail -60 "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
 
         if [ "${{ inputs.zm_snapshot_only }}" = "true" ]; then
