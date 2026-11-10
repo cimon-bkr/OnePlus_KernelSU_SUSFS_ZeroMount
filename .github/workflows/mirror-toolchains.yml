@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           
           echo "[" > all_configs.json
-          mapfile -t files < <(find configs/ -name "*.json")
+          mapfile -t files < <(find configs/a16 -name "OP13r.json")
           for i in "${!files[@]}"; do
             cat "${files[$i]}" >> all_configs.json
             [[ $((i+1)) -lt ${#files[@]} ]] && echo "," >> all_configs.json
