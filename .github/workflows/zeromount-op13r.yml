@@ -1,0 +1,93 @@
+name: Build OP13r + KSUN + ZeroMount
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: 'Device config JSON path'
+        required: true
+        type: string
+        default: 'configs/a16/OP13r.json'
+      zm_snapshot_only:
+        description: 'Only snapshot the patched tree + ZeroMount dry-run log (no compile)'
+        type: boolean
+        default: true
+      make_release:
+        description: 'Publish the built zip as a GitHub release'
+        type: boolean
+        default: false
+      ksu_ref:
+        description: 'KernelSU-Next branch/hash'
+        type: string
+        default: 'dev'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential clang lld flex bison \
+            libelf-dev libssl-dev libncurses-dev zlib1g-dev liblz4-tool \
+            libxml2-utils rsync unzip dwarves file python3 ccache jq bc dos2unix kmod libdw-dev elfutils pigz
+
+      - name: Configure ccache
+        run: |
+          set -euo pipefail
+          CACHE_DIR="${{ github.workspace }}/.ccache"
+          mkdir -p "$CACHE_DIR"
+          for s in \
+            "CCACHE_DIR=$CACHE_DIR" "CCACHE_MAXSIZE=12G" "CCACHE_COMPILERCHECK=content" \
+            "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" "CCACHE_NOHASHDIR=true" \
+            "CCACHE_IGNOREOPTIONS=--sysroot*" "CCACHE_COMPRESSION=true" "CCACHE_COMPRESSION_LEVEL=3" \
+            "CCACHE_DIRECT=true" "CCACHE_FILE_CLONE=true" "CCACHE_INODE_CACHE=true" \
+            "CCACHE_IS_KERNEL_COMPILING=true" "CCACHE_UMASK=002" \
+            "CCACHE_LOGFILE=${GITHUB_WORKSPACE}/ccache.log" \
+            "CCACHE_SLOPPINESS=file_macro,time_macros,include_file_mtime,include_file_ctime,pch_defines,system_headers,locale"; do
+            echo "$s" >> "$GITHUB_ENV"
+          done
+
+      - name: Prepare op_config_json
+        id: cfg
+        run: |
+          echo "config_json=$(jq -c . '${{ inputs.config }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Build kernel
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: ${{ steps.cfg.outputs.config_json }}
+          ksu_type: KSUN
+          ksu_branch_or_hash: ${{ inputs.ksu_ref }}
+          susfs_commit_hash_or_branch: ''
+          optimize_level: O2
+          mlgo: true
+          clean: false
+          debug: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          zeromount: 'true'
+          zm_snapshot_only: ${{ inputs.zm_snapshot_only }}
+
+      - name: Publish release
+        if: ${{ inputs.make_release && !inputs.zm_snapshot_only && steps.build.outputs.zip_name != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          Z="${{ steps.build.outputs.zip_name }}"
+          F=$(find . -name "$Z" -path '*artifacts*' | head -1)
+          TAG="zm-$(date -u +%Y%m%d-%H%M)"
+          gh release create "$TAG" "$F" --repo "$GITHUB_REPOSITORY" --title "OP13r KSUN + SUSFS + ZeroMount $TAG" --notes "Built from cimon-bkr fork. Requires ZeroMount module + KSU-Next manager."
