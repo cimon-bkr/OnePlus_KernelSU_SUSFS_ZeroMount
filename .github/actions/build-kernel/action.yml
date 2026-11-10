@@ -1297,46 +1297,7 @@ runs:
         echo "✅ KSU hooks applied"
         echo "::endgroup::"
 
-    - name: ZeroMount - snapshot and apply
-      if: ${{ inputs.zeromount == 'true' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
-        SB_REF: c2cb71614868fe742cbffee2b6f3126523432673
-      run: |
-        set -uo pipefail
-        echo "::group::ZeroMount"
-        cd "$COMMON_KERNEL_FOLDER"
-        KMI="${ANDROID_VER:-$OP_ANDROID_VERSION}-${KERNEL_VER:-$OP_KERNEL_VERSION}"
-        SB_RAW="https://raw.githubusercontent.com/Enginex0/Super-Builders/$SB_REF/$KMI/KernelSU-Next/patches"
-        PATCH_UPSTREAM="/tmp/60_zeromount-$KMI.patch"
-        curl --fail -sSL "$SB_RAW/60_zeromount-$KMI.patch" -o "$PATCH_UPSTREAM"
-        ls -la "$PATCH_UPSTREAM"
-
-        # Snapshot of everything modified so far (SUSFS + hooks + compat), for offline debugging
-        mkdir -p /tmp/zm-out
-        git ls-files -m -o --exclude-standard > /tmp/zm-out/changed.txt
-        tar czf "/tmp/zm-out/zm-snapshot-$OP_MODEL-$OP_OS_VERSION.tgz" -T /tmp/zm-out/changed.txt
-        git rev-parse HEAD > /tmp/zm-out/base-commit.txt
-        grep -E '#define SUSFS_VERSION' include/linux/susfs.h > /tmp/zm-out/susfs-version.txt || true
-
-        # Dry-run of the unmodified upstream ZeroMount patch against the real tree
-        rc=0
-        patch -p1 --dry-run --forward --batch < "$PATCH_UPSTREAM" > "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log" 2>&1 || rc=$?
-        echo "dry-run exit: $rc" | tee -a "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
-        tail -60 "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
-
-        if [ "${{ inputs.zm_snapshot_only }}" = "true" ]; then
-          gh release view zm-debug --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create zm-debug --repo "$GITHUB_REPOSITORY" --prerelease --title "ZeroMount debug snapshots" --notes "Debug artifacts"
-          gh release upload zm-debug /tmp/zm-out/* --clobber --repo "$GITHUB_REPOSITORY"
-          echo "ZM_STOP=1" >> "$GITHUB_ENV"
-          echo "Snapshot uploaded; stopping before compile."
-        fi
-        echo "::endgroup::"
-
     - name: Apply Other Patches
-      if: ${{ env.ZM_STOP != '1' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1468,7 +1429,7 @@ runs:
         echo "::endgroup::"
 
     - name: Apply Optimisation Patches
-      if: ${{ env.ZM_STOP != '1' && (env.OP_OPT == 'true') }}
+      if: ${{ env.OP_OPT == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1535,7 +1496,7 @@ runs:
 
     - name: Apply NTSync Patch
       shell: bash
-      if: ${{ env.ZM_STOP != '1' && (env.OP_NTSYNC == 'true') }}
+      if: ${{ env.OP_NTSYNC == 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Apply NTSync patch"
@@ -1587,7 +1548,7 @@ runs:
 
     - name: Apply Unicode Fix Patch
       shell: bash
-      if: ${{ env.ZM_STOP != '1' && (env.OP_UNICODE == 'true') }}
+      if: ${{ env.OP_UNICODE == 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Apply Unicode Fix patch"
@@ -1603,7 +1564,6 @@ runs:
         fi
 
     - name: Add Tmpfs Support
-      if: ${{ env.ZM_STOP != '1' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1614,7 +1574,7 @@ runs:
         EOF
 
     - name: Add BBR
-      if: ${{ env.ZM_STOP != '1' && (env.OP_BBR == 'true') }}
+      if: ${{ env.OP_BBR == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1625,7 +1585,7 @@ runs:
         EOF
 
     - name: Apply BBRv3
-      if: ${{ env.ZM_STOP != '1' && (env.OP_BBR3 == 'true') }}
+      if: ${{ env.OP_BBR3 == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1648,7 +1608,6 @@ runs:
         echo "::endgroup::"
 
     - name: Enable Important Net Schedulers (qdisc)
-      if: ${{ env.ZM_STOP != '1' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1662,7 +1621,7 @@ runs:
         EOF
 
     - name: Add TTL Target Support
-      if: ${{ env.ZM_STOP != '1' && (env.OP_TTL == 'true') }}
+      if: ${{ env.OP_TTL == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1674,7 +1633,7 @@ runs:
         EOF
 
     - name: Add IP SET & IPv6_NAT Support
-      if: ${{ env.ZM_STOP != '1' && (env.OP_IP_SET == 'true') }}
+      if: ${{ env.OP_IP_SET == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -1715,7 +1674,7 @@ runs:
 
     - name: Add Droidspaces support
       shell: bash
-      if: ${{ env.ZM_STOP != '1' && (env.OP_DS == 'true') }}
+      if: ${{ env.OP_DS == 'true' }}
       run: |
         echo "::group::Add Droidspaces Support"
         set -euo pipefail
@@ -1768,6 +1727,44 @@ runs:
         fi
         
         echo "✅ Droidspaces Support applied"
+        echo "::endgroup::"
+
+    - name: ZeroMount - snapshot and apply
+      if: ${{ inputs.zeromount == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        SB_REF: c2cb71614868fe742cbffee2b6f3126523432673
+      run: |
+        set -uo pipefail
+        echo "::group::ZeroMount"
+        cd "$COMMON_KERNEL_FOLDER"
+        KMI="${ANDROID_VER:-$OP_ANDROID_VERSION}-${KERNEL_VER:-$OP_KERNEL_VERSION}"
+        SB_RAW="https://raw.githubusercontent.com/Enginex0/Super-Builders/$SB_REF/$KMI/KernelSU-Next/patches"
+        PATCH_UPSTREAM="/tmp/60_zeromount-$KMI.patch"
+        curl --fail -sSL "$SB_RAW/60_zeromount-$KMI.patch" -o "$PATCH_UPSTREAM"
+        ls -la "$PATCH_UPSTREAM"
+
+        # Snapshot of everything modified so far (SUSFS + hooks + compat), for offline debugging
+        mkdir -p /tmp/zm-out
+        git ls-files -m -o --exclude-standard > /tmp/zm-out/changed.txt
+        tar czf "/tmp/zm-out/zm-snapshot-$OP_MODEL-$OP_OS_VERSION.tgz" -T /tmp/zm-out/changed.txt
+        git rev-parse HEAD > /tmp/zm-out/base-commit.txt
+        grep -E '#define SUSFS_VERSION' include/linux/susfs.h > /tmp/zm-out/susfs-version.txt || true
+
+        # Dry-run of the unmodified upstream ZeroMount patch against the real tree
+        rc=0
+        patch -p1 --dry-run --forward --batch < "$PATCH_UPSTREAM" > "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log" 2>&1 || rc=$?
+        echo "dry-run exit: $rc" | tee -a "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
+        tail -60 "/tmp/zm-out/zm-dryrun-$OP_MODEL-$OP_OS_VERSION.log"
+
+        if [ "${{ inputs.zm_snapshot_only }}" = "true" ]; then
+          gh release view zm-debug --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create zm-debug --repo "$GITHUB_REPOSITORY" --prerelease --title "ZeroMount debug snapshots" --notes "Debug artifacts"
+          gh release upload zm-debug /tmp/zm-out/* --clobber --repo "$GITHUB_REPOSITORY"
+          echo "ZM_STOP=1" >> "$GITHUB_ENV"
+          echo "Snapshot uploaded; stopping before compile."
+        fi
         echo "::endgroup::"
 
     - name: Add Build based configs
