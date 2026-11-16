@@ -125,9 +125,13 @@ runs:
 
     - name: Parse op_config_json
       shell: bash
+      env:
+        OP_CONFIG_JSON: ${{ inputs.op_config_json }}
       run: |
         set -euo pipefail
-        echo '${{ inputs.op_config_json }}' > /tmp/config.json
+        # Keep JSON transport out of shell source so embedded quotes are not escaped.
+        printf '%s\n' "$OP_CONFIG_JSON" > /tmp/config.json
+        jq -e 'type == "object"' /tmp/config.json >/dev/null
         jq -r 'to_entries[] | "OP_\(.key | ascii_upcase)=\(.value)"' /tmp/config.json >> "$GITHUB_ENV"
         echo "Parsed config:"
         jq '.' /tmp/config.json
