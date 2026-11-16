@@ -1809,7 +1809,7 @@ runs:
         grep -q '^CONFIG_HYBRIDMOUNT=y$' "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
 
         echo "Hybrid Mount VFS v6.2.6 integrated; CONFIG_HYBRIDMOUNT=y"
-        echo "Hybrid Mount VFS v6.2.6 (built-in)" >> "$ARTIFACTS_FOLDER/\${OP_MODEL}_\${OP_OS_VERSION}.txt"
+        echo "Hybrid Mount VFS v6.2.6 (built-in)" >> "$ARTIFACTS_FOLDER/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "::endgroup::"
 
     - name: Add Build based configs
