@@ -1,0 +1,134 @@
+name: Build OnePlus Ace 5 Android 16 — KSUN + SUSFS + hardened ZeroMount
+
+on:
+  push:
+    branches:
+      - fix/zeromount-ace5-empty-rules
+    paths:
+      - '.github/workflows/zeromount-ace5.yml'
+      - 'zeromount/android14-6.1/60_zeromount-oplus.patch'
+      - 'configs/a16/OP-ACE-5.json'
+      - 'CHANGELOG-ACE5-ZEROMOUNT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ace5-zeromount-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: fix/zeromount-ace5-empty-rules
+          fetch-depth: 1
+
+      - name: Validate Ace 5 target
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG=configs/a16/OP-ACE-5.json
+          jq -e '
+            .model == "OP-ACE-5" and
+            .soc == "pineapple" and
+            .branch == "wild/sm8650" and
+            .manifest == "oneplus_ace5_w.xml" and
+            .android_version == "android14" and
+            .kernel_version == "6.1" and
+            .os_version == "A16"
+          ' "$CONFIG" >/dev/null
+          echo "config_json=$(jq -c . "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "Validated target: $(jq -r '.model + " / " + .soc + " / " + .os_version + " / " + .android_version + "-" + .kernel_version' "$CONFIG")"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential clang lld flex bison \
+            libelf-dev libssl-dev libncurses-dev zlib1g-dev liblz4-tool \
+            libxml2-utils rsync unzip dwarves file python3 ccache jq bc dos2unix \
+            kmod libdw-dev elfutils pigz
+
+      - name: Configure ccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
+          mkdir -p "$CACHE_DIR"
+          {
+            echo "CCACHE_DIR=$CACHE_DIR"
+            echo "CCACHE_MAXSIZE=12G"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CCACHE_COMPRESSION=true"
+            echo "CCACHE_COMPRESSION_LEVEL=3"
+            echo "CCACHE_LOGFILE=$GITHUB_WORKSPACE/ccache.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Build Ace 5 kernel (full compile)
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: ${{ steps.config.outputs.config_json }}
+          ksu_type: KSUN
+          ksu_branch_or_hash: dev
+          susfs_commit_hash_or_branch: ''
+          optimize_level: O2
+          mlgo: true
+          clean: false
+          debug: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          zeromount: 'true'
+          zm_snapshot_only: 'false'
+
+      - name: Verify package and generate checksums
+        id: package
+        shell: bash
+        env:
+          ZIP_NAME: ${{ steps.build.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          test -n "$ZIP_NAME" || { echo "::error::Build action returned no ZIP name"; exit 1; }
+          ZIP_PATH="$(find . -type f -name "$ZIP_NAME" -print -quit)"
+          test -n "$ZIP_PATH" || { echo "::error::Flashable ZIP not found: $ZIP_NAME"; exit 1; }
+          test -s "$ZIP_PATH"
+          mkdir -p release-assets
+          cp "$ZIP_PATH" release-assets/
+          cp CHANGELOG-ACE5-ZEROMOUNT.md release-assets/
+          cp configs/a16/OP-ACE-5.json release-assets/
+          (
+            cd release-assets
+            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-ZEROMOUNT.md OP-ACE-5.json > SHA256SUMS
+          )
+          echo "zip_path=release-assets/$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          cat release-assets/SHA256SUMS
+
+      - name: Publish experimental GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          TAG="ace5-zeromount-experimental-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" \
+            "$ZIP_PATH" \
+            release-assets/SHA256SUMS \
+            release-assets/CHANGELOG-ACE5-ZEROMOUNT.md \
+            release-assets/OP-ACE-5.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Ace 5 Android 16 — hardened ZeroMount (experimental)" \
+            --notes-file CHANGELOG-ACE5-ZEROMOUNT.md \
+            --prerelease
