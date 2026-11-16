@@ -448,7 +448,7 @@ new file mode 100644
 index 0000000..485e6a2
 --- /dev/null
 +++ b/fs/zeromount.c
-@@ -0,0 +1,1526 @@
+@@ -0,0 +1,1537 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
