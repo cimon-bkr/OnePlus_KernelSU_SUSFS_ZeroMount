@@ -9,6 +9,14 @@ on:
       - 'zeromount/android14-6.1/60_zeromount-oplus.patch'
       - 'configs/a16/OP-ACE-5.json'
       - 'CHANGELOG-ACE5-ZEROMOUNT.md'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/zeromount-ace5.yml'
+      - 'zeromount/android14-6.1/60_zeromount-oplus.patch'
+      - 'configs/a16/OP-ACE-5.json'
+      - 'CHANGELOG-ACE5-ZEROMOUNT.md'
   workflow_dispatch:
 
 permissions:
