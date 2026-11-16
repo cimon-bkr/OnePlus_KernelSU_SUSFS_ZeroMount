@@ -1,4 +1,4 @@
-name: Build OnePlus Ace 5 Android 16 — KSUN + SUSFS + hardened ZeroMount
+name: Build OP13R 6.1.141 kernel for Ace 5 — 13R ROM + Ace 5 ODM
 
 on:
   push:
@@ -42,18 +42,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CONFIG=configs/a16/OP-ACE-5.json
+          CONFIG=configs/a16/OP13r-6.1.141.json
           jq -e '
-            .model == "OP-ACE-5" and
+            .model == "OP13r-6.1.141" and
             .soc == "pineapple" and
             .branch == "wild/sm8650" and
-            .manifest == "oneplus_ace5_w.xml" and
+            .manifest == "oneplus_13r_6.1.141_w.xml" and
             .android_version == "android14" and
             .kernel_version == "6.1" and
             .os_version == "A16"
           ' "$CONFIG" >/dev/null
           echo "config_json=$(jq -c . "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "Validated target: $(jq -r '.model + " / " + .soc + " / " + .os_version + " / " + .android_version + "-" + .kernel_version' "$CONFIG")"
+          echo "Validated kernel source target: $(jq -r '.model + " / " + .soc + " / " + .os_version + " / " + .android_version + "-" + .kernel_version' "$CONFIG")"
 
       - name: Install dependencies
         shell: bash
@@ -83,7 +83,7 @@ jobs:
             echo "CCACHE_LOGFILE=$GITHUB_WORKSPACE/ccache.log"
           } >> "$GITHUB_ENV"
 
-      - name: Build Ace 5 kernel (full compile)
+      - name: Build OP13R 6.1.141 kernel (full compile)
         id: build
         uses: ./.github/actions/build-kernel
         with:
@@ -113,10 +113,10 @@ jobs:
           mkdir -p release-assets
           cp "$ZIP_PATH" release-assets/
           cp CHANGELOG-ACE5-ZEROMOUNT.md release-assets/
-          cp configs/a16/OP-ACE-5.json release-assets/
+          cp configs/a16/OP13r-6.1.141.json release-assets/
           (
             cd release-assets
-            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-ZEROMOUNT.md OP-ACE-5.json > SHA256SUMS
+            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-ZEROMOUNT.md OP13r-6.1.141.json > SHA256SUMS
           )
           echo "zip_path=release-assets/$ZIP_NAME" >> "$GITHUB_OUTPUT"
           echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
@@ -135,8 +135,8 @@ jobs:
             "$ZIP_PATH" \
             release-assets/SHA256SUMS \
             release-assets/CHANGELOG-ACE5-ZEROMOUNT.md \
-            release-assets/OP-ACE-5.json \
+            release-assets/OP13r-6.1.141.json \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Ace 5 Android 16 — hardened ZeroMount (experimental)" \
+            --title "Ace 5 · OP13R kernel 6.1.141 + Ace 5 ODM (experimental)" \
             --notes-file CHANGELOG-ACE5-ZEROMOUNT.md \
             --prerelease
