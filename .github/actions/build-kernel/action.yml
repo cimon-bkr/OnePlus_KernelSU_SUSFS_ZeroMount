@@ -59,6 +59,10 @@ inputs:
     description: 'Upload a snapshot of the patched tree + ZeroMount dry-run log, then stop before compiling'
     required: false
     default: 'false'
+  hybridmount:
+    description: 'Integrate the pinned Hybrid Mount VFS provider (separate from ZeroMount)'
+    required: false
+    default: 'false'
 
 outputs:
   kernel_version:
@@ -121,9 +125,13 @@ runs:
 
     - name: Parse op_config_json
       shell: bash
+      env:
+        OP_CONFIG_JSON: ${{ inputs.op_config_json }}
       run: |
         set -euo pipefail
-        echo '${{ inputs.op_config_json }}' > /tmp/config.json
+        # Keep JSON transport out of shell source so embedded quotes are not escaped.
+        printf '%s\n' "$OP_CONFIG_JSON" > /tmp/config.json
+        jq -e 'type == "object"' /tmp/config.json >/dev/null
         jq -r 'to_entries[] | "OP_\(.key | ascii_upcase)=\(.value)"' /tmp/config.json >> "$GITHUB_ENV"
         echo "Parsed config:"
         jq '.' /tmp/config.json
@@ -1765,6 +1773,45 @@ runs:
         grep -q '^obj-$(CONFIG_ZEROMOUNT)' fs/Makefile && echo "ZeroMount applied: Makefile hook present"
         echo "::endgroup::"
 
+    - name: Hybrid Mount VFS - integrate built-in provider
+      if: ${{ inputs.hybridmount == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Hybrid Mount VFS"
+        cd "$COMMON_KERNEL_FOLDER"
+
+        # ZeroMount and Hybrid Mount VFS are separate kernel variants.
+        if [ -f "$COMMON_KERNEL_FOLDER/fs/zeromount.c" ] ||
+           grep -q '^CONFIG_ZEROMOUNT=y' "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"; then
+          echo "::error::Refusing to combine Hybrid Mount VFS with ZeroMount in one kernel."
+          exit 1
+        fi
+
+        HM_REF="0a047415b795e760bfdb84e98ef7d4b653485c50"
+        HM_BASE="https://raw.githubusercontent.com/Hybrid-Mount/meta-hybrid_mount/$HM_REF/module/vfs"
+        HM_ROOT="$RUNNER_TEMP/hybrid-mount-v6.2.6/module/vfs"
+        mkdir -p "$HM_ROOT/src"
+
+        for source_file in setup.sh src/hybridmount.c src/hybridmount.h src/Kconfig src/LICENSE; do
+          target="$HM_ROOT/$source_file"
+          mkdir -p "$(dirname "$target")"
+          curl --fail --location --retry 3 --proto '=https' "$HM_BASE/$source_file" -o "$target"
+          test -s "$target" || { echo "::error::Hybrid Mount source download is empty: $source_file"; exit 1; }
+        done
+
+        # Use the upstream integration script with all inputs pinned to v6.2.6.
+        sh "$HM_ROOT/setup.sh"
+
+        echo "CONFIG_HYBRIDMOUNT=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+        grep -qF 'obj-$(CONFIG_HYBRIDMOUNT) += hybridmount/' "$COMMON_KERNEL_FOLDER/fs/Makefile"
+        grep -qF 'source "fs/hybridmount/Kconfig"' "$COMMON_KERNEL_FOLDER/fs/Kconfig"
+        grep -q '^CONFIG_HYBRIDMOUNT=y$' "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+
+        echo "Hybrid Mount VFS v6.2.6 integrated; CONFIG_HYBRIDMOUNT=y"
+        echo "Hybrid Mount VFS v6.2.6 (built-in)" >> "$ARTIFACTS_FOLDER/${OP_MODEL}_${OP_OS_VERSION}.txt"
+        echo "::endgroup::"
+
     - name: Add Build based configs
       if: ${{ env.ZM_STOP != '1' }}
       shell: bash
@@ -2067,6 +2114,13 @@ runs:
 
         
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
+        if [ "${{ inputs.hybridmount }}" = "true" ]; then
+          grep -qx 'CONFIG_HYBRIDMOUNT=y' "$OUT/.config" || {
+            echo "::error::CONFIG_HYBRIDMOUNT did not survive olddefconfig"
+            exit 1
+          }
+        fi
+
         
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
         KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
