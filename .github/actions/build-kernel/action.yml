@@ -1774,7 +1774,7 @@ runs:
         echo "::endgroup::"
 
     - name: Hybrid Mount VFS - integrate built-in provider
-      if: \${{ inputs.hybridmount == 'true' }}
+      if: ${{ inputs.hybridmount == 'true' }}
       shell: bash
       run: |
         set -euo pipefail

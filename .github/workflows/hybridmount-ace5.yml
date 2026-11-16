@@ -83,7 +83,7 @@ jobs:
         id: build
         uses: ./.github/actions/build-kernel
         with:
-          op_config_json: \${{ steps.config.outputs.config_json }}
+          op_config_json: ${{ steps.config.outputs.config_json }}
           ksu_type: KSUN
           ksu_branch_or_hash: dev
           susfs_commit_hash_or_branch: ''
@@ -91,7 +91,7 @@ jobs:
           mlgo: true
           clean: false
           debug: false
-          github_token: \${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           zeromount: 'false'
           hybridmount: 'true'
           zm_snapshot_only: 'false'
@@ -100,12 +100,12 @@ jobs:
         id: package
         shell: bash
         env:
-          ZIP_NAME: \${{ steps.build.outputs.zip_name }}
+          ZIP_NAME: ${{ steps.build.outputs.zip_name }}
         run: |
           set -euo pipefail
           test -n "$ZIP_NAME" || { echo "::error::Build action returned no ZIP name"; exit 1; }
-          test "\${{ steps.build.outputs.kernel_version }}" = "android14-6.1.157" || {
-            echo "::error::Unexpected kernel version output: \${{ steps.build.outputs.kernel_version }}"
+          test "${{ steps.build.outputs.kernel_version }}" = "android14-6.1.157" || {
+            echo "::error::Unexpected kernel version output: ${{ steps.build.outputs.kernel_version }}"
             exit 1
           }
           ZIP_PATH="$(find . -type f -name "$ZIP_NAME" -print -quit)"
@@ -129,9 +129,9 @@ jobs:
       - name: Publish experimental Hybrid Mount GitHub release
         shell: bash
         env:
-          GH_TOKEN: \${{ github.token }}
-          ZIP_PATH: \${{ steps.package.outputs.zip_path }}
-          ZIP_NAME: \${{ steps.package.outputs.zip_name }}
+          GH_TOKEN: ${{ github.token }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
         run: |
           set -euo pipefail
           TAG="ace5-hybridmount-6.1.157-$(date -u +%Y%m%d-%H%M%S)"
