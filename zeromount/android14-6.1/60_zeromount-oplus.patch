@@ -8,7 +8,7 @@ index 410a8f5..4a03b13 100644
  
 +config ZEROMOUNT
 +	bool "ZeroMount Path Redirection Subsystem"
-+	default y
++	default n
 +	help
 +	  ZeroMount allows path redirection and virtual file injection
 +	  without mounting filesystems. Useful for systemless modifications.
@@ -584,7 +584,7 @@ index 0000000..485e6a2
 +
 +bool zeromount_should_skip(void)
 +{
-+	if (ZEROMOUNT_DISABLED())
++	if (ZEROMOUNT_DISABLED() || atomic_read(&zeromount_rule_count) == 0)
 +		return true;
 +	if (zm_is_recursive())
 +		return true;
@@ -852,6 +852,8 @@ index 0000000..485e6a2
 +	char *copy = NULL;
 +
 +	if (unlikely(!inode || !inode->i_sb))
++		return NULL;
++	if (ZEROMOUNT_DISABLED() || atomic_read(&zeromount_rule_count) == 0)
 +		return NULL;
 +
 +	key = inode->i_ino ^ inode->i_sb->s_dev;
@@ -1725,8 +1727,10 @@ index 0000000..485e6a2
 +	}
 +	if (found)
 +		zeromount_cleanup_parent_dir(v_path);
-+	if (found)
-+		atomic_dec(&zeromount_rule_count);
++	if (found) {
++		if (atomic_dec_return(&zeromount_rule_count) == 0)
++			atomic_set(&zeromount_enabled, 0);
++	}
 +	zm_bloom_rebuild();
 +	spin_unlock(&zeromount_lock);
 +
@@ -1745,6 +1749,7 @@ index 0000000..485e6a2
 +	int bkt;
 +
 +	spin_lock(&zeromount_lock);
++	atomic_set(&zeromount_enabled, 0);
 +
 +	hash_for_each_safe(zeromount_rules_ht, bkt, tmp, rule, node) {
 +		hash_del_rcu(&rule->node);
@@ -1881,7 +1886,13 @@ index 0000000..485e6a2
 +
 +static int zeromount_ioctl_enable(void)
 +{
-+	atomic_set(&zeromount_enabled, 1);
++	/* Empty rule sets must never activate global VFS hooks. */
++	spin_lock(&zeromount_lock);
++	if (atomic_read(&zeromount_rule_count) > 0)
++		atomic_set(&zeromount_enabled, 1);
++	else
++		atomic_set(&zeromount_enabled, 0);
++	spin_unlock(&zeromount_lock);
 +	return 0;
 +}
 +
