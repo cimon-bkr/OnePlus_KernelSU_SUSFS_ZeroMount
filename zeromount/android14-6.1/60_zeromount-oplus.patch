@@ -77,9 +77,7 @@ index 119b93f..44b948f 100644
  
  #include "internal.h"
  #include "mount.h"
-@@ -212,6 +215,13 @@ getname_flags(const char __user *filename, int flags, int *empty)
- 	result->uptr = filename;
- 	result->aname = NULL;
+@@ -212,1 +215,7 @@ getname_flags(const char __user *filename, int flags, int *empty)
  	audit_getname(result);
 +
 +#ifdef CONFIG_ZEROMOUNT
@@ -87,10 +85,7 @@ index 119b93f..44b948f 100644
 +		result = zeromount_getname_hook(result);
 +	}
 +#endif
-+
- 	return result;
- }
- 
+
 @@ -411,6 +421,18 @@ int generic_permission(struct user_namespace *mnt_userns, struct inode *inode,
  {
  	int ret;
@@ -208,32 +203,24 @@ index 70c4fbc..0e0e6b9 100644
  #ifdef CONFIG_KSU_SUSFS_SUS_PATH
  #include <linux/susfs_def.h>
  extern bool susfs_is_inode_sus_path(struct inode *inode);
-@@ -322,17 +325,37 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
- 		.current_dir = dirent
- 	};
+@@ -324,1 +327,4 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	int error;
 +#ifdef CONFIG_ZEROMOUNT
 +	int initial_count = count;
 +#endif
- 
- 	f = fdget_pos(fd);
+@@ -327,2 +333,8 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	if (!f.file)
  		return -EBADF;
- 
 +#ifdef CONFIG_ZEROMOUNT
 +	if (f.file->f_pos >= ZEROMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
 +	}
 +#endif
-+
- #ifdef CONFIG_KSU_SUSFS_SUS_PATH
- 	buf.sb = f.file->f_inode->i_sb;
- #endif
+@@ -333,3 +345,12 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	error = iterate_dir(f.file, &buf.ctx);
  	if (error >= 0)
  		error = buf.error;
-+
 +#ifdef CONFIG_ZEROMOUNT
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
@@ -243,9 +230,6 @@ index 70c4fbc..0e0e6b9 100644
 +		goto zm_out;
 +	}
 +#endif
- 	if (buf.prev_reclen) {
- 		struct linux_dirent __user * lastdirent;
- 		lastdirent = (void __user *)buf.current_dir - buf.prev_reclen;
 @@ -342,6 +365,9 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
  		else
  			error = count - buf.count;
@@ -256,32 +240,24 @@ index 70c4fbc..0e0e6b9 100644
  	fdput_pos(f);
  	return error;
  }
-@@ -427,17 +453,37 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
- 		.current_dir = dirent
- 	};
+@@ -429,1 +453,4 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  	int error;
 +#ifdef CONFIG_ZEROMOUNT
 +	int initial_count = count;
 +#endif
- 
- 	f = fdget_pos(fd);
+@@ -432,2 +459,8 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  	if (!f.file)
  		return -EBADF;
- 
 +#ifdef CONFIG_ZEROMOUNT
 +	if (f.file->f_pos >= ZEROMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
 +	}
 +#endif
-+
- #ifdef CONFIG_KSU_SUSFS_SUS_PATH
- 	buf.sb = f.file->f_inode->i_sb;
- #endif
+@@ -438,3 +471,12 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  	error = iterate_dir(f.file, &buf.ctx);
  	if (error >= 0)
  		error = buf.error;
-+
 +#ifdef CONFIG_ZEROMOUNT
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
@@ -291,9 +267,6 @@ index 70c4fbc..0e0e6b9 100644
 +		goto zm_out;
 +	}
 +#endif
- 	if (buf.prev_reclen) {
- 		struct linux_dirent64 __user * lastdirent;
- 		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
 @@ -448,6 +494,9 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  		else
  			error = count - buf.count;
@@ -304,32 +277,24 @@ index 70c4fbc..0e0e6b9 100644
  	fdput_pos(f);
  	return error;
  }
-@@ -637,17 +686,37 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
- 		.count = count
- 	};
+@@ -639,1 +684,4 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	int error;
 +#ifdef CONFIG_ZEROMOUNT
 +	int initial_count = count;
 +#endif
- 
- 	f = fdget_pos(fd);
+@@ -642,2 +690,8 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	if (!f.file)
  		return -EBADF;
- 
 +#ifdef CONFIG_ZEROMOUNT
 +	if (f.file->f_pos >= ZEROMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
 +	}
 +#endif
-+
- #ifdef CONFIG_KSU_SUSFS_SUS_PATH
- 	buf.sb = f.file->f_inode->i_sb;
- #endif
+@@ -648,3 +702,12 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
  	error = iterate_dir(f.file, &buf.ctx);
  	if (error >= 0)
  		error = buf.error;
-+
 +#ifdef CONFIG_ZEROMOUNT
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
@@ -339,9 +304,6 @@ index 70c4fbc..0e0e6b9 100644
 +		goto zm_out;
 +	}
 +#endif
- 	if (buf.prev_reclen) {
- 		struct compat_linux_dirent __user * lastdirent;
- 		lastdirent = (void __user *)buf.current_dir - buf.prev_reclen;
 @@ -657,6 +726,9 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
  		else
  			error = count - buf.count;
