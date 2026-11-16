@@ -1,21 +1,15 @@
-name: Build OP13R 6.1.141 kernel for Ace 5 — 13R ROM + Ace 5 ODM
+name: Build OP13R 6.1.157 kernel for Ace 5 — 13R ROM + Ace 5 ODM
 
 on:
-  push:
-    branches:
-      - fix/zeromount-ace5-empty-rules
-    paths:
-      - '.github/workflows/zeromount-ace5.yml'
-      - 'zeromount/android14-6.1/60_zeromount-oplus.patch'
-      - 'configs/a16/OP13r-6.1.141.json'
-      - 'CHANGELOG-ACE5-ZEROMOUNT.md'
   pull_request:
     branches:
       - main
     paths:
       - '.github/workflows/zeromount-ace5.yml'
+      - '.github/actions/build-kernel/action.yml'
       - 'zeromount/android14-6.1/60_zeromount-oplus.patch'
-      - 'configs/a16/OP13r-6.1.141.json'
+      - 'configs/a16/OP13r-6.1.157.json'
+      - 'manifests/a16/oneplus_13r_6.1.157_w.xml'
       - 'CHANGELOG-ACE5-ZEROMOUNT.md'
   workflow_dispatch:
 
@@ -37,23 +31,25 @@ jobs:
           ref: fix/zeromount-ace5-empty-rules
           fetch-depth: 1
 
-      - name: Validate OP13R source and Ace 5 ODM scenario
+      - name: Validate pinned OP13R 6.1.157 source and Ace 5 ODM scenario
         id: config
         shell: bash
         run: |
           set -euo pipefail
-          CONFIG=configs/a16/OP13r-6.1.141.json
+          CONFIG=configs/a16/OP13r-6.1.157.json
           jq -e '
-            .model == "OP13r-6.1.141" and
+            .model == "OP13r-6.1.157" and
             .soc == "pineapple" and
             .branch == "wild/sm8650" and
-            .manifest == "oneplus_13r_6.1.141_w.xml" and
+            .manifest == "oneplus_13r_6.1.157_w.xml" and
             .android_version == "android14" and
             .kernel_version == "6.1" and
             .os_version == "A16"
           ' "$CONFIG" >/dev/null
           echo "config_json=$(jq -c . "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "Validated kernel source target: $(jq -r '.model + " / " + .soc + " / " + .os_version + " / " + .android_version + "-" + .kernel_version' "$CONFIG")"
+          grep -q '7a7ae28e849b0f9b42b8b6fc26feebe1864bf7ac' manifests/a16/oneplus_13r_6.1.157_w.xml
+          grep -q 'dda73f7205501c09f7d0f48fd5f6d7f4b2220ca7' manifests/a16/oneplus_13r_6.1.157_w.xml
+          echo "Validated pinned OP13R kernel source: Linux 6.1.157"
 
       - name: Install dependencies
         shell: bash
@@ -83,7 +79,7 @@ jobs:
             echo "CCACHE_LOGFILE=$GITHUB_WORKSPACE/ccache.log"
           } >> "$GITHUB_ENV"
 
-      - name: Build OP13R 6.1.141 kernel (full compile)
+      - name: Build OP13R 6.1.157 + hardened ZeroMount (full compile)
         id: build
         uses: ./.github/actions/build-kernel
         with:
@@ -97,6 +93,7 @@ jobs:
           debug: false
           github_token: ${{ secrets.GITHUB_TOKEN }}
           zeromount: 'true'
+          hybridmount: 'false'
           zm_snapshot_only: 'false'
 
       - name: Verify package and generate checksums
@@ -107,16 +104,22 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$ZIP_NAME" || { echo "::error::Build action returned no ZIP name"; exit 1; }
+          test "${{ steps.build.outputs.kernel_version }}" = "android14-6.1.157" || {
+            echo "::error::Unexpected kernel version output: ${{ steps.build.outputs.kernel_version }}"
+            exit 1
+          }
           ZIP_PATH="$(find . -type f -name "$ZIP_NAME" -print -quit)"
           test -n "$ZIP_PATH" || { echo "::error::Flashable ZIP not found: $ZIP_NAME"; exit 1; }
           test -s "$ZIP_PATH"
           mkdir -p release-assets
           cp "$ZIP_PATH" release-assets/
+          unzip -t "$ZIP_PATH" >/dev/null
           cp CHANGELOG-ACE5-ZEROMOUNT.md release-assets/
-          cp configs/a16/OP13r-6.1.141.json release-assets/
+          cp configs/a16/OP13r-6.1.157.json release-assets/
+          cp manifests/a16/oneplus_13r_6.1.157_w.xml release-assets/
           (
             cd release-assets
-            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-ZEROMOUNT.md OP13r-6.1.141.json > SHA256SUMS
+            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-ZEROMOUNT.md OP13r-6.1.157.json oneplus_13r_6.1.157_w.xml > SHA256SUMS
           )
           echo "zip_path=release-assets/$ZIP_NAME" >> "$GITHUB_OUTPUT"
           echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
@@ -130,13 +133,14 @@ jobs:
           ZIP_NAME: ${{ steps.package.outputs.zip_name }}
         run: |
           set -euo pipefail
-          TAG="ace5-zeromount-experimental-$(date -u +%Y%m%d-%H%M%S)"
+          TAG="ace5-zeromount-6.1.157-$(date -u +%Y%m%d-%H%M%S)"
           gh release create "$TAG" \
             "$ZIP_PATH" \
             release-assets/SHA256SUMS \
             release-assets/CHANGELOG-ACE5-ZEROMOUNT.md \
-            release-assets/OP13r-6.1.141.json \
+            release-assets/OP13r-6.1.157.json \
+            release-assets/oneplus_13r_6.1.157_w.xml \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Ace 5 · OP13R kernel 6.1.141 + Ace 5 ODM (experimental)" \
+            --title "Ace 5 · OP13R 6.1.157 + hardened ZeroMount (experimental)" \
             --notes-file CHANGELOG-ACE5-ZEROMOUNT.md \
             --prerelease

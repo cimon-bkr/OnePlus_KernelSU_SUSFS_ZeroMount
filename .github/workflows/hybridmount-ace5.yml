@@ -1,0 +1,147 @@
+name: Build OP13R 6.1.157 Hybrid Mount VFS kernel for Ace 5 — 13R ROM + Ace 5 ODM
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/hybridmount-ace5.yml'
+      - '.github/actions/build-kernel/action.yml'
+      - 'configs/a16/OP13r-6.1.157.json'
+      - 'manifests/a16/oneplus_13r_6.1.157_w.xml'
+      - 'CHANGELOG-ACE5-HYBRIDMOUNT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ace5-hybridmount-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: fix/zeromount-ace5-empty-rules
+          fetch-depth: 1
+
+      - name: Validate pinned OP13R 6.1.157 + Hybrid Mount target
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG=configs/a16/OP13r-6.1.157.json
+          jq -e '
+            .model == "OP13r-6.1.157" and
+            .soc == "pineapple" and
+            .branch == "wild/sm8650" and
+            .manifest == "oneplus_13r_6.1.157_w.xml" and
+            .android_version == "android14" and
+            .kernel_version == "6.1" and
+            .os_version == "A16" and
+            .susfs == true
+          ' "$CONFIG" >/dev/null
+          grep -q '7a7ae28e849b0f9b42b8b6fc26feebe1864bf7ac' manifests/a16/oneplus_13r_6.1.157_w.xml
+          grep -q 'dda73f7205501c09f7d0f48fd5f6d7f4b2220ca7' manifests/a16/oneplus_13r_6.1.157_w.xml
+          echo "config_json=$(jq -c . "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "Validated: OP13R Linux 6.1.157 + Hybrid Mount VFS v6.2.6"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential clang lld flex bison \
+            libelf-dev libssl-dev libncurses-dev zlib1g-dev liblz4-tool \
+            libxml2-utils rsync unzip dwarves file python3 ccache jq bc dos2unix \
+            kmod libdw-dev elfutils pigz
+
+      - name: Configure ccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+          mkdir -p "$CACHE_DIR"
+          {
+            echo "CCACHE_DIR=$CACHE_DIR"
+            echo "CCACHE_MAXSIZE=12G"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CCACHE_COMPRESSION=true"
+            echo "CCACHE_COMPRESSION_LEVEL=3"
+            echo "CCACHE_LOGFILE=$GITHUB_WORKSPACE/ccache.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Build OP13R 6.1.157 + built-in Hybrid Mount VFS
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: \${{ steps.config.outputs.config_json }}
+          ksu_type: KSUN
+          ksu_branch_or_hash: dev
+          susfs_commit_hash_or_branch: ''
+          optimize_level: O2
+          mlgo: true
+          clean: false
+          debug: false
+          github_token: \${{ secrets.GITHUB_TOKEN }}
+          zeromount: 'false'
+          hybridmount: 'true'
+          zm_snapshot_only: 'false'
+
+      - name: Verify flashable ZIP and generate checksums
+        id: package
+        shell: bash
+        env:
+          ZIP_NAME: \${{ steps.build.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          test -n "$ZIP_NAME" || { echo "::error::Build action returned no ZIP name"; exit 1; }
+          test "\${{ steps.build.outputs.kernel_version }}" = "android14-6.1.157" || {
+            echo "::error::Unexpected kernel version output: \${{ steps.build.outputs.kernel_version }}"
+            exit 1
+          }
+          ZIP_PATH="$(find . -type f -name "$ZIP_NAME" -print -quit)"
+          test -n "$ZIP_PATH" || { echo "::error::Flashable ZIP not found: $ZIP_NAME"; exit 1; }
+          test -s "$ZIP_PATH"
+          unzip -t "$ZIP_PATH" >/dev/null
+          unzip -p "$ZIP_PATH" OP13r-6.1.157_A16.txt | grep -q 'Hybrid Mount VFS v6.2.6 (built-in)'
+          mkdir -p release-assets
+          cp "$ZIP_PATH" release-assets/
+          cp CHANGELOG-ACE5-HYBRIDMOUNT.md release-assets/
+          cp configs/a16/OP13r-6.1.157.json release-assets/
+          cp manifests/a16/oneplus_13r_6.1.157_w.xml release-assets/
+          (
+            cd release-assets
+            sha256sum "$ZIP_NAME" CHANGELOG-ACE5-HYBRIDMOUNT.md OP13r-6.1.157.json oneplus_13r_6.1.157_w.xml > SHA256SUMS
+          )
+          echo "zip_path=release-assets/$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          cat release-assets/SHA256SUMS
+
+      - name: Publish experimental Hybrid Mount GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+          ZIP_PATH: \${{ steps.package.outputs.zip_path }}
+          ZIP_NAME: \${{ steps.package.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          TAG="ace5-hybridmount-6.1.157-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" \
+            "$ZIP_PATH" \
+            release-assets/SHA256SUMS \
+            release-assets/CHANGELOG-ACE5-HYBRIDMOUNT.md \
+            release-assets/OP13r-6.1.157.json \
+            release-assets/oneplus_13r_6.1.157_w.xml \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Ace 5 · OP13R 6.1.157 + Hybrid Mount VFS v6.2.6 (experimental)" \
+            --notes-file CHANGELOG-ACE5-HYBRIDMOUNT.md \
+            --prerelease
